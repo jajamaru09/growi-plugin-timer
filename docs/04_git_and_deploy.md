@@ -13,67 +13,59 @@ git config user.name "あなたのユーザー名"
 git config user.email "your-email@example.com"
 ```
 
-## 2. .gitignore の作成
-
-ビルド成果物や `node_modules` をGitの追跡対象から除外します。
-
-```bash
-# .gitignore ファイルを作成
-```
-
-以下の内容で `.gitignore` を作成してください：
+## 2. .gitignore の設定
 
 ```
 node_modules/
-dist/
 *.log
 ```
 
-> **ポイント**: `dist/` を除外するかどうかはプロジェクトによります。
-> Growiはプラグインインストール時にサーバー側でビルドするため、
-> `dist/` はリポジトリに含めなくてもOKです。
-> ただし、Growi側のビルド環境に問題がある場合は `dist/` を含めることもあります。
+**重要: `dist/` は含めないこと！**
 
-## 3. コミット
+Growiはリポジトリをcloneした後、サーバー側で `npm install` や `npm run build` を**実行しません**。
+`dist/.vite/manifest.json` を読んでビルド済みJSのパスを特定し、そのファイルをブラウザに配信します。
+そのため `dist/` がリポジトリに含まれていないとプラグインは動作しません。
+
+動作している全プラグイン（youtube, datatables, script-template）が `dist/` をコミットしています。
+
+## 3. ビルドしてからコミット
 
 ```bash
+# ビルド（dist/ を生成）
+npm run build
+
 # すべてのファイルをステージング
 git add .
 
-# 状態を確認（コミット対象を確認する習慣をつけましょう）
+# 状態を確認（dist/ が含まれていることを確認！）
 git status
 
-# 初回コミット
+# コミット
 git commit -m "Initial commit: growi-plugin-timer"
 ```
+
+**確認ポイント**: `git status` で以下のファイルが含まれていること
+- `dist/.vite/manifest.json`
+- `dist/assets/client-entry-xxxxx.js`
 
 ## 4. GitHubにリポジトリを作成
 
 ### 方法A: GitHub CLI（gh）を使う場合
 
 ```bash
-# GitHub CLIがインストール済みで認証済みの場合
 gh repo create growi-plugin-timer --public --source=. --push
 ```
-
-これだけで、リポジトリ作成 → リモート設定 → push まで一括で完了します。
 
 ### 方法B: 手動で行う場合
 
 1. ブラウザで https://github.com/new を開く
 2. Repository name に `growi-plugin-timer` と入力
-3. Public を選択
-4. 「Create repository」をクリック
-5. 以下のコマンドを実行：
+3. Public を選択して「Create repository」
+4. 以下を実行：
 
 ```bash
-# リモートリポジトリを登録（URLは自分のものに置き換え）
 git remote add origin https://github.com/あなたのユーザー名/growi-plugin-timer.git
-
-# メインブランチ名を main に設定
 git branch -M main
-
-# プッシュ
 git push -u origin main
 ```
 
@@ -81,46 +73,41 @@ git push -u origin main
 
 Growiプラグインギャラリーに掲載されるよう、リポジトリにトピックを付けます。
 
-### GitHub CLI の場合
-
 ```bash
+# GitHub CLI の場合
 gh repo edit --add-topic growi-plugin
 ```
 
-### 手動の場合
-
-1. GitHubのリポジトリページを開く
-2. 右上の歯車アイコン（About欄）をクリック
-3. Topics に `growi-plugin` と入力して保存
+手動の場合: GitHubリポジトリページ → About欄の歯車 → Topics に `growi-plugin` と入力
 
 ## 6. Growiにプラグインをインストール
 
-### 手順
-
 1. Growiに**管理者アカウント**でログイン
-2. 左メニューまたはURL直接で **管理画面** を開く
-   - URL例: `https://your-growi.example.com/admin`
-3. サイドバーから **「プラグイン」** を選択
-4. 「GitHub URL」の入力欄に、リポジトリのURLを入力：
-   ```
-   https://github.com/あなたのユーザー名/growi-plugin-timer
-   ```
-5. **「インストール」** ボタンをクリック
-6. Growiがリポジトリをclone → `npm install` → ビルドを自動実行
-7. インストール完了後、プラグイン一覧に表示される
-8. トグルスイッチで**有効化**する
+2. 管理画面（`/admin`）→ サイドバーの **「プラグイン」**
+3. 「GitHub URL」にリポジトリURLを入力してインストール
+4. プラグイン一覧に表示されたら、トグルスイッチで**有効化**
 
 ### 動作確認
 
-1. 任意のWikiページを開く（または新規作成）
-2. 編集画面で以下を入力：
-   ```markdown
-   # ストップウォッチテスト
+1. 任意のWikiページを編集
+2. `$timer` と入力
+3. プレビューまたは閲覧画面でストップウォッチが表示されることを確認
 
-   $timer
-   ```
-3. プレビューまたはページ閲覧画面で、ストップウォッチが表示されることを確認
-4. Start/Stop ボタン、Reset ボタンが正常に動作することを確認
+## 7. プラグインを更新した場合
+
+ソースコード修正後の更新手順：
+
+```bash
+# 1. ビルド
+npm run build
+
+# 2. コミット＆プッシュ
+git add .
+git commit -m "更新内容の説明"
+git push
+```
+
+3. Growi管理画面でプラグインを**一度削除**してから**再インストール**
 
 ## トラブルシューティング
 
@@ -129,14 +116,16 @@ gh repo edit --add-topic growi-plugin
 | インストールボタンが無い | 管理者アカウントでログインしているか確認 |
 | インストールがエラーになる | リポジトリがPublicか確認。Privateの場合はGrowiにGitHubトークンの設定が必要 |
 | プラグインが一覧に出ない | `package.json` の `growiPlugin` フィールドが正しいか確認 |
-| `$timer` がそのまま表示される | プラグインが有効化されているか確認。ページをリロードしてみる |
-| ビルドエラーが出る | Growiサーバーの Node.js バージョンが18以上か確認 |
+| `$timer` がそのまま表示される | プラグインが有効化されているか確認。ページをリロード |
+| 更新が反映されない | プラグインを削除→再インストール。ブラウザのキャッシュもクリア |
 
 ## コマンドまとめ（コピペ用）
 
 ```bash
+# --- ビルド ---
+npm run build
+
 # --- Git初期化 & コミット ---
-cd f:\Work\Growi_plugin1
 git init
 git add .
 git commit -m "Initial commit: growi-plugin-timer"
