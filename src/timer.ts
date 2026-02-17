@@ -1,149 +1,34 @@
 /**
  * timer.ts - remarkプラグイン本体
  *
- * 【このファイルの役割】
- * Markdownの `$timer` ディレクティブを見つけて、
- * ストップウォッチのHTMLに変換します。
+ * 【修正ポイント】
+ * Growi は rehype-sanitize でHTMLをサニタイズするため、
+ * <script> タグやインライン style 属性は除去されます。
+ *
+ * そこで、このプラグインでは：
+ * - HTMLは <div> と <span>, <button> のみ使用
+ * - class 属性でスタイリングとJS紐付けを行う
+ * - JavaScript の動作は client-entry.tsx 側で後付けする
  *
  * 【処理の流れ】
- * 1. unified/remarkがMarkdownをAST（構文木）に変換する
- * 2. このプラグインがASTの全ノードを巡回（visit）する
- * 3. `leafGrowiPluginDirective` タイプで、name が "timer" のノードを探す
- * 4. 見つかったら、そのノードをストップウォッチHTMLに書き換える
- *
- * 【重要な概念】
- * - visit(): unist-util-visit ライブラリの関数。ASTの全ノードを再帰的に巡回する
- * - node.type: ASTノードの種類。Growiディレクティブは 'leafGrowiPluginDirective'
- * - node.name: ディレクティブ名。$timer なら 'timer'
+ * 1. ASTを巡回して $timer ディレクティブを探す
+ * 2. 見つけたノードを data.hName / data.hChildren で
+ *    HAST（HTML AST）ノードに変換する
+ *    → これにより rehype-sanitize をバイパスできる
  */
 
 import type { Plugin } from 'unified';
 import { visit } from 'unist-util-visit';
 
 /**
- * ストップウォッチのHTMLを生成する関数
+ * remarkプラグイン
  *
- * Growiのremarkプラグインでは、ASTノードを `type: 'html'` に変換して
- * `value` にHTMLを直接書き込む方法が最もシンプルです。
+ * Growiのサニタイザーを考慮し、node.type = 'html' ではなく
+ * data.hName を使った HAST 変換を行います。
  *
- * ストップウォッチはJavaScriptで動作するため、
- * HTMLの中にインラインの<script>でロジックを埋め込みます。
- * （Reactコンポーネントではなく、バニラJSで実装）
- */
-function generateStopwatchHtml(): string {
-  // 各ストップウォッチが独立して動作するよう、ユニークなIDを生成
-  const id = `growi-timer-${Math.random().toString(36).slice(2, 9)}`;
-
-  return `
-<div id="${id}" style="
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  background: #f8f9fa;
-  font-family: 'Courier New', Consolas, monospace;
-">
-  <span id="${id}-display" style="
-    font-size: 1.5em;
-    font-weight: bold;
-    min-width: 5ch;
-    text-align: center;
-  ">00:00</span>
-
-  <button id="${id}-toggle" style="
-    padding: 4px 12px;
-    border: 1px solid #28a745;
-    border-radius: 4px;
-    background: #28a745;
-    color: white;
-    cursor: pointer;
-    font-size: 0.9em;
-  ">Start</button>
-
-  <button id="${id}-reset" style="
-    padding: 4px 12px;
-    border: 1px solid #6c757d;
-    border-radius: 4px;
-    background: #6c757d;
-    color: white;
-    cursor: pointer;
-    font-size: 0.9em;
-  ">Reset</button>
-</div>
-
-<script>
-(function() {
-  var timerId = "${id}";
-  var display = document.getElementById(timerId + "-display");
-  var toggleBtn = document.getElementById(timerId + "-toggle");
-  var resetBtn = document.getElementById(timerId + "-reset");
-
-  var seconds = 0;
-  var interval = null;
-  var running = false;
-
-  function formatTime(totalSeconds) {
-    var m = Math.floor(totalSeconds / 60);
-    var s = totalSeconds % 60;
-    return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
-  }
-
-  function updateDisplay() {
-    if (display) display.textContent = formatTime(seconds);
-  }
-
-  if (toggleBtn) {
-    toggleBtn.addEventListener("click", function() {
-      if (running) {
-        // Stop
-        clearInterval(interval);
-        interval = null;
-        running = false;
-        toggleBtn.textContent = "Start";
-        toggleBtn.style.background = "#28a745";
-        toggleBtn.style.borderColor = "#28a745";
-      } else {
-        // Start
-        running = true;
-        toggleBtn.textContent = "Stop";
-        toggleBtn.style.background = "#dc3545";
-        toggleBtn.style.borderColor = "#dc3545";
-        interval = setInterval(function() {
-          seconds++;
-          updateDisplay();
-        }, 1000);
-      }
-    });
-  }
-
-  if (resetBtn) {
-    resetBtn.addEventListener("click", function() {
-      clearInterval(interval);
-      interval = null;
-      running = false;
-      seconds = 0;
-      updateDisplay();
-      if (toggleBtn) {
-        toggleBtn.textContent = "Start";
-        toggleBtn.style.background = "#28a745";
-        toggleBtn.style.borderColor = "#28a745";
-      }
-    });
-  }
-})();
-</script>
-  `.trim();
-}
-
-/**
- * remarkプラグインのエクスポート
- *
- * 【Plugin の構造】
- * unified の Plugin は「関数を返す関数」です。
- * 外側の関数はオプションを受け取り、
- * 内側の関数（transformer）がASTを変換します。
+ * data.hName: このノードをHTMLに変換する際のタグ名
+ * data.hProperties: HTMLの属性（class, data-* など）
+ * data.hChildren: 子要素の配列
  */
 export const timerPlugin: Plugin = function () {
   return (tree: any) => {
@@ -154,9 +39,35 @@ export const timerPlugin: Plugin = function () {
       // 2. $timer ディレクティブか？
       if (node.name !== 'timer') return;
 
-      // 3. ノードをHTMLに変換
-      node.type = 'html';
-      node.value = generateStopwatchHtml();
+      // 3. HAST ノードとして変換
+      // data.hName を設定すると、remark→rehype 変換時に
+      // そのタグ名のHTML要素として出力される
+      node.data = {
+        hName: 'div',
+        hProperties: {
+          className: ['growi-plugin-timer'],
+        },
+        hChildren: [
+          {
+            type: 'element',
+            tagName: 'span',
+            properties: { className: ['growi-timer-display'] },
+            children: [{ type: 'text', value: '00:00' }],
+          },
+          {
+            type: 'element',
+            tagName: 'button',
+            properties: { className: ['growi-timer-toggle'] },
+            children: [{ type: 'text', value: 'Start' }],
+          },
+          {
+            type: 'element',
+            tagName: 'button',
+            properties: { className: ['growi-timer-reset'] },
+            children: [{ type: 'text', value: 'Reset' }],
+          },
+        ],
+      };
     });
   };
 };
