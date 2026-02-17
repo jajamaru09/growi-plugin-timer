@@ -1,14 +1,30 @@
-import type { Plugin } from 'unified';
+import type React from 'react';
 
-/**
- * Growiのmarkdownレンダラーのオプション型
- * remarkPlugins に自作プラグインを追加するために使う
- */
-export type Options = Record<string, unknown>;
+export interface Options {
+  adminPreferredIndentSize: number;
+  attrWhitelist: object;
+  drawioUri: string;
+  highlightJsStyleBorder: boolean;
+  isEnabledLinebreaks: boolean;
+  isEnabledLinebreaksInComments: boolean;
+  isEnabledMarp: boolean;
+  isEnabledXssPrevention: boolean;
+  isIndentSizeForced: boolean;
+  plantumlUri: string;
+  tagWhitelist: string[];
+  xssOption: string;
+}
 
-export type Func = (...args: unknown[]) => unknown;
+export type Func = (props: any) => void;
 
 export interface ViewOptions {
-  remarkPlugins: Plugin[];
-  [key: string]: unknown;
+  components: {
+    [key: string]: React.FunctionComponent<any>;
+  },
+  remarkPlugins: [func: Func, options: any][] | Func[],
+  rehypePlugins: [func: Func, options: any][] | Func[],
+  remarkRehypeOptions: {
+    allowDangerousHtml: boolean,
+    clobberPrefix: string,
+  }
 }
