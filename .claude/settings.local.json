@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.growi.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:qiita.com)"
+    ]
+  }
+}
