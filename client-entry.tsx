@@ -1,17 +1,27 @@
 /**
- * client-entry.tsx - Growiプラグインのエントリポイント
+ * client-entry.tsx - Growiプラグインのエントリポイント（修正版v2）
  *
- * 【修正版】
- * Growiはセキュリティのため <script> タグをサニタイズします。
- * そこで、ストップウォッチの動作（JavaScript）は
- * remarkプラグイン側ではなく、こちら（client-entry）で付与します。
+ * 【lsxプラグインの方式を参考にした設計】
  *
- * 方式：MutationObserver でDOMを監視し、
- * .growi-plugin-timer 要素が現れたらイベントリスナーを設定する
+ * lsx（Growi内蔵）の場合:
+ *   remarkPlugin → data.hName='lsx' → components.lsx = LsxComponent
+ *   → react-markdown が <lsx> タグを React コンポーネントとして描画
+ *
+ * 外部プラグイン（このプラグイン）の場合:
+ *   サニタイズ設定を変更できないため、カスタムタグ名は使えない。
+ *   代わりに以下の方式を使う:
+ *
+ *   remarkPlugin → data.hName='div' + data-growi-plugin-timer 属性
+ *   → サニタイザーを通過（div と data-* は標準で許可される）
+ *   → MutationObserver が div[data-growi-plugin-timer] を検知
+ *   → ReactDOM.createRoot() で Stopwatch コンポーネントをマウント
  */
 
+import React from 'react';
+import ReactDOM from 'react-dom/client';
 import config from './package.json';
 import { timerPlugin } from './src/timer';
+import { Stopwatch } from './src/Stopwatch';
 import type { Options, Func, ViewOptions } from './types/utils';
 
 declare const growiFacade: {
@@ -25,129 +35,34 @@ declare const growiFacade: {
   };
 };
 
-// --- ストップウォッチのCSS（<style>タグとしてheadに注入） ---
-function injectStyles(): void {
-  if (document.getElementById('growi-plugin-timer-style')) return;
+/**
+ * 指定した要素に Stopwatch React コンポーネントをマウントする
+ */
+function mountStopwatch(container: HTMLElement): void {
+  // 既にマウント済みならスキップ
+  if (container.dataset.timerMounted === 'true') return;
+  container.dataset.timerMounted = 'true';
 
-  const style = document.createElement('style');
-  style.id = 'growi-plugin-timer-style';
-  style.textContent = `
-    .growi-plugin-timer {
-      display: inline-flex;
-      align-items: center;
-      gap: 12px;
-      padding: 8px 16px;
-      border: 1px solid #dee2e6;
-      border-radius: 8px;
-      background: #f8f9fa;
-      font-family: 'Courier New', Consolas, monospace;
-      margin: 4px 0;
-    }
-    .growi-timer-display {
-      font-size: 1.5em;
-      font-weight: bold;
-      min-width: 5ch;
-      text-align: center;
-    }
-    .growi-timer-toggle,
-    .growi-timer-reset {
-      padding: 4px 12px;
-      border: 1px solid;
-      border-radius: 4px;
-      color: white;
-      cursor: pointer;
-      font-size: 0.9em;
-    }
-    .growi-timer-toggle {
-      background: #28a745;
-      border-color: #28a745;
-    }
-    .growi-timer-toggle.running {
-      background: #dc3545;
-      border-color: #dc3545;
-    }
-    .growi-timer-reset {
-      background: #6c757d;
-      border-color: #6c757d;
-    }
-  `;
-  document.head.appendChild(style);
+  const root = ReactDOM.createRoot(container);
+  root.render(React.createElement(Stopwatch));
 }
 
-// --- ストップウォッチのJS動作を要素に付与 ---
-function attachTimerBehavior(container: HTMLElement): void {
-  // 既に初期化済みならスキップ
-  if (container.dataset.timerInitialized === 'true') return;
-  container.dataset.timerInitialized = 'true';
+/**
+ * DOM を監視し、timer プレースホルダーが現れたら React をマウント
+ *
+ * MutationObserver は DOM の変更をリアルタイムで監視する Web API。
+ * Growi は SPA なのでページ遷移時にも新しい要素が追加される。
+ * それを検知して自動的にストップウォッチをマウントする。
+ */
+function observeAndMount(): void {
+  const selector = 'div[data-growi-plugin-timer]';
 
-  const display = container.querySelector('.growi-timer-display') as HTMLElement | null;
-  const toggleBtn = container.querySelector('.growi-timer-toggle') as HTMLButtonElement | null;
-  const resetBtn = container.querySelector('.growi-timer-reset') as HTMLButtonElement | null;
+  // 既に存在する要素に対応
+  document.querySelectorAll<HTMLElement>(selector).forEach(mountStopwatch);
 
-  if (!display || !toggleBtn || !resetBtn) return;
-
-  let seconds = 0;
-  let interval: ReturnType<typeof setInterval> | null = null;
-  let running = false;
-
-  function formatTime(totalSeconds: number): string {
-    const m = Math.floor(totalSeconds / 60);
-    const s = totalSeconds % 60;
-    return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
-  }
-
-  function updateDisplay(): void {
-    if (display) display.textContent = formatTime(seconds);
-  }
-
-  toggleBtn.addEventListener('click', () => {
-    if (running) {
-      if (interval) clearInterval(interval);
-      interval = null;
-      running = false;
-      toggleBtn.textContent = 'Start';
-      toggleBtn.classList.remove('running');
-    } else {
-      running = true;
-      toggleBtn.textContent = 'Stop';
-      toggleBtn.classList.add('running');
-      interval = setInterval(() => {
-        seconds++;
-        updateDisplay();
-      }, 1000);
-    }
-  });
-
-  resetBtn.addEventListener('click', () => {
-    if (interval) clearInterval(interval);
-    interval = null;
-    running = false;
-    seconds = 0;
-    updateDisplay();
-    toggleBtn.textContent = 'Start';
-    toggleBtn.classList.remove('running');
-  });
-}
-
-// --- DOM監視：ストップウォッチ要素が現れたらJS動作を付与 ---
-function observeTimerElements(): void {
-  // 既存の要素にも対応
-  document.querySelectorAll<HTMLElement>('.growi-plugin-timer').forEach(attachTimerBehavior);
-
-  // 今後追加される要素を監視（ページ遷移やプレビュー更新に対応）
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      for (const addedNode of mutation.addedNodes) {
-        if (!(addedNode instanceof HTMLElement)) continue;
-
-        // 追加されたノード自身がタイマーか
-        if (addedNode.classList?.contains('growi-plugin-timer')) {
-          attachTimerBehavior(addedNode);
-        }
-        // 追加されたノードの子孫にタイマーがあるか
-        addedNode.querySelectorAll<HTMLElement>('.growi-plugin-timer').forEach(attachTimerBehavior);
-      }
-    }
+  // 今後追加される要素を監視
+  const observer = new MutationObserver(() => {
+    document.querySelectorAll<HTMLElement>(selector).forEach(mountStopwatch);
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
@@ -161,7 +76,7 @@ const activate = (): void => {
 
   const { optionsGenerators } = growiFacade.markdownRenderer;
 
-  // ページ閲覧画面（View）への登録
+  // ページ閲覧画面への登録
   const originalCustomViewOptions = optionsGenerators.customGenerateViewOptions;
   optionsGenerators.customGenerateViewOptions = (...args) => {
     const options = originalCustomViewOptions
@@ -181,9 +96,8 @@ const activate = (): void => {
     return preview;
   };
 
-  // CSSを注入し、DOM監視を開始
-  injectStyles();
-  observeTimerElements();
+  // DOM 監視を開始
+  observeAndMount();
 };
 
 const deactivate = (): void => {};

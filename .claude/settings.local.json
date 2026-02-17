@@ -3,7 +3,10 @@
     "allow": [
       "WebFetch(domain:docs.growi.org)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:qiita.com)"
+      "WebFetch(domain:qiita.com)",
+      "Bash(gh api:*)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }
